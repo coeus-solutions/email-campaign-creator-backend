@@ -21,33 +21,57 @@ class EmailContent(BaseModel):
 async def generate_email(request: EmailGenerationRequest):
     try:
         # Create a system message that sets up the context
-        system_message = """You are an expert email copywriter specializing in creating beautiful, personalized HTML emails. 
-        Your task is to create compelling email content that effectively promotes products while maintaining a professional 
-        and engaging tone. Generate both a subject line and HTML email body that are persuasive but not overly salesy.
-        
-        Important guidelines:
-        1. Use proper HTML formatting for structure and style
-        2. Include appropriate spacing and line breaks
-        3. Use personalization placeholders correctly
-        4. Create visually appealing sections
-        5. Include subtle emojis where appropriate
-        6. Ensure the email looks good on all devices"""
+        system_message = """You are an expert B2B email copywriter specializing in creating professional, high-converting outreach emails.
+
+IMPORTANT - Use these exact placeholder formats (do not modify them):
+1. {{prospect_name}} - for the recipient's name
+2. {{company_name}} - for the recipient's company
+3. {{prospect_email}} - for the recipient's email
+
+Guidelines for email creation:
+1. Structure:
+   - Personal greeting using {{prospect_name}}
+   - Strong value proposition
+   - Company-specific observation using {{company_name}}
+   - Clear call to action
+   - Professional signature
+2. Styling:
+   - Use basic responsive HTML/CSS
+   - Use Arial or sans-serif fonts
+   - No images, logos, or social links
+   - Clean, minimalist design
+3. Content:
+   - Attention-grabbing subject line
+   - Professional tone throughout
+   - Concise paragraphs (2-3 lines max)
+   - Natural personalization
+4. Technical:
+   - Ensure high deliverability
+   - Mobile-friendly display
+   - Clean HTML code
+   - Proper spacing and formatting"""
 
         # Create the user message combining product description and specific instructions
         user_message = f"""Product Description: {request.productDescription}
 
 Additional Instructions: {request.prompt}
 
-Please generate an email that:
-1. Uses proper HTML formatting
-2. Includes personalization placeholders
-3. Has a clear visual hierarchy
-4. Is mobile-responsive
-5. Has an engaging call-to-action
+Create a professional B2B outreach email that:
+1. Uses the exact placeholders: {{prospect_name}}, {{company_name}}, {{prospect_email}}
+2. Has an attention-grabbing subject line
+3. Follows the structure:
+   - Personal greeting
+   - Value proposition
+   - Company-specific observation
+   - Clear call to action
+   - Professional signature
+4. Includes responsive HTML with clean styling
+5. Maintains a professional tone
+6. Keeps paragraphs concise
 
 Format the response exactly as:
-SUBJECT: [subject line]
-CONTENT: [HTML email content]"""
+SUBJECT: [subject line with proper placeholders]
+CONTENT: [HTML email content with proper placeholders]"""
 
         # Call OpenAI API
         response = await openai.ChatCompletion.acreate(
@@ -57,7 +81,7 @@ CONTENT: [HTML email content]"""
                 {"role": "user", "content": user_message}
             ],
             temperature=0.7,
-            max_tokens=2000  # Increased for HTML content
+            max_tokens=2000
         )
 
         # Extract subject and content from the response
@@ -72,6 +96,18 @@ CONTENT: [HTML email content]"""
             content_part = parts[1].strip()
             subject_line = subject_part
             content = content_part
+
+        # Verify and fix any malformed placeholders
+        placeholders = [
+            ("{{prospect_name}}", ["{full_name}", "{name}"]),
+            ("{{prospect_email}}", ["{email}"]),
+            ("{{company_name}}", ["{company}", "{prospect_company}"])
+        ]
+        
+        for correct, incorrect_list in placeholders:
+            for incorrect in incorrect_list:
+                content = content.replace(incorrect, correct)
+                subject_line = subject_line.replace(incorrect, correct)
 
         return EmailContent(subject=subject_line, content=content)
 

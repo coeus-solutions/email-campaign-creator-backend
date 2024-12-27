@@ -78,15 +78,27 @@ class EmailService:
         successful_emails = []
         failed_emails = []
 
+        # Define placeholder mappings
+        placeholder_mappings = {
+            'prospect_name': 'prospect_name',
+            'prospect_email': 'email',
+            'company_name': 'company_name'
+        }
+
         for recipient in recipients:
             try:
-                # Replace placeholders in content
+                # Replace placeholders in subject and content
+                personalized_subject = subject
                 personalized_content = content_template
-                for key, value in recipient.items():
-                    if key != 'email':
-                        personalized_content = personalized_content.replace(f"{{{key}}}", value)
 
-                if self.send_email(recipient['email'], subject, personalized_content):
+                # Replace placeholders with double curly braces
+                for placeholder, key in placeholder_mappings.items():
+                    placeholder_pattern = f"{{{{{placeholder}}}}}"
+                    value = recipient.get(key, '')
+                    personalized_subject = personalized_subject.replace(placeholder_pattern, value)
+                    personalized_content = personalized_content.replace(placeholder_pattern, value)
+
+                if self.send_email(recipient['email'], personalized_subject, personalized_content):
                     successful_emails.append(recipient['email'])
                 else:
                     failed_emails.append(recipient['email'])

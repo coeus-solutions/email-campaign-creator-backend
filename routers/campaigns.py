@@ -44,6 +44,44 @@ async def create_campaign(campaign: CampaignCreate, current_user: str = Depends(
         logger.error(f"Error creating campaign: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.put("/{campaign_id}", response_model=CampaignDB)
+async def update_campaign(campaign_id: str, campaign: CampaignCreate, current_user: str = Depends(get_current_user)):
+    try:
+        # Check if campaign exists and belongs to user
+        existing = supabase.table('campaigns').select("*").eq('id', campaign_id).eq('created_by', current_user).single().execute()
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+
+        # Check if campaign can be updated (must be in draft status)
+        if existing.data['status'] != CampaignStatus.DRAFT:
+            raise HTTPException(status_code=400, detail="Only draft campaigns can be updated")
+
+        # Validate product exists
+        product = supabase.table('products').select("*").eq('id', campaign.product_id).execute()
+        if not product.data:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        # Validate prospects exist
+        prospects = supabase.table('prospects').select("*").in_('id', campaign.prospect_ids).execute()
+        if len(prospects.data) != len(campaign.prospect_ids):
+            raise HTTPException(status_code=404, detail="Some prospects not found")
+
+        # Update campaign
+        result = supabase.table('campaigns').update({
+            "name": campaign.name,
+            "subject": campaign.subject,
+            "content": campaign.content,
+            "product_id": campaign.product_id,
+            "prospect_ids": campaign.prospect_ids,
+            "updated_at": datetime.utcnow().isoformat(),
+            "total_prospects": len(campaign.prospect_ids)
+        }).eq('id', campaign_id).execute()
+
+        return result.data[0]
+    except Exception as e:
+        logger.error(f"Error updating campaign: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.get("/", response_model=List[CampaignDB])
 async def list_campaigns(current_user: str = Depends(get_current_user)):
     try:
@@ -102,6 +140,7 @@ async def send_campaign_emails(campaign_id: str, current_user: str):
         recipients = [{
             'email': prospect['email'],
             'prospect_name': prospect['full_name'],
+            'company_name': prospect.get('company', ''),
             'product_name': product.data['name']
         } for prospect in prospects.data]
 
@@ -114,7 +153,7 @@ async def send_campaign_emails(campaign_id: str, current_user: str):
 
         # Update campaign status
         supabase.table('campaigns').update({
-            "status": CampaignStatus.COMPLETED if not failed_emails else CampaignStatus.COMPLETED,
+            "status": CampaignStatus.COMPLETED if len(failed_emails) == 0 else CampaignStatus.FAILED,
             "completed_at": datetime.utcnow().isoformat(),
             "sent_count": len(successful_emails),
             "failed_count": len(failed_emails)
@@ -178,4 +217,18 @@ async def retry_campaign(campaign_id: str, background_tasks: BackgroundTasks, cu
         return {"message": "Campaign retry initiated successfully"}
     except Exception as e:
         logger.error(f"Error retrying campaign: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e)) 
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/{campaign_id}")
+async def delete_campaign(campaign_id: str):
+    try:
+        # Delete the campaign from Supabase
+        response = supabase.table('campaigns').delete().eq('id', campaign_id).execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+            
+        return {"message": "Campaign deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting campaign: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) 
